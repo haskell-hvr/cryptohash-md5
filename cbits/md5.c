@@ -185,7 +185,7 @@ md5_do_chunk(struct md5_ctx *ctx, const uint8_t buf[])
 {
   if (ptr_uint32_aligned(buf)) { /* aligned buf */
 #if WORDS_BIGENDIAN
-    uint32_t w[16]; cpu_to_le32_array(w, buf, 16);
+    uint32_t w[16]; cpu_to_le32_array(w, (const uint32_t *)buf, 16);
 #else
     const uint32_t *w = (const uint32_t *)buf;
 #endif
