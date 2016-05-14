@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import           Data.Bits              (xor)
 import           Data.ByteString        (ByteString)
 import qualified Data.ByteString        as B
 import qualified Data.ByteString.Lazy   as BL
@@ -90,13 +91,39 @@ katTests
       where
         vecXL = BL.fromChunks (replicate 16777216 "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmno")
 
-    splitB :: Int -> ByteString -> [ByteString]
-    splitB l b
-      | B.length b > l = b1 : splitB l b2
-      | otherwise = [b]
-      where
-        (b1, b2) = B.splitAt l b
+splitB :: Int -> ByteString -> [ByteString]
+splitB l b
+  | B.length b > l = b1 : splitB l b2
+  | otherwise = [b]
+  where
+    (b1, b2) = B.splitAt l b
 
+
+rfc2202Vectors :: [(ByteString,ByteString,ByteString)]
+rfc2202Vectors = -- (secrect,msg,mac)
+    [ (rep 16 0x0b, "Hi There", x"9294727a3638bb1c13f48ef8158bfc9d")
+    , ("Jefe", "what do ya want for nothing?", x"750c783e6ab0b503eaa86e310a5db738")
+    , (rep 16 0xaa, rep 50 0xdd, x"56be34521d144c88dbb8c733f0e8b3f6")
+    , (B.pack [1..25], rep 50 0xcd, x"697eaf0aca3a3aea3a75164746ffaa79")
+    , (rep 16 0x0c, "Test With Truncation", x"56461ef2342edc00f9bab995690efd4c")
+    , (rep 80 0xaa, "Test Using Larger Than Block-Size Key - Hash Key First", x"6b1ab7fe4bd7bf8f0b62e6ce61b9d0cd")
+    , (rep 80 0xaa, "Test Using Larger Than Block-Size Key and Larger Than One Block-Size Data", x"6f630fad67cda0ee1fb1f562db3aa53e")
+    ]
+  where
+    x = fst.B16.decode
+    rep n c = B.replicate n c
+
+rfc2202Tests :: [TestTree]
+rfc2202Tests = zipWith makeTest [1::Int ..] rfc2202Vectors
+  where
+    makeTest i (key, msg, mac) = testGroup ("vec"++show i) $
+        [ testCase "hmac" (hex mac  @=? hex (IUT.hmac key msg))
+        , testCase "hmaclazy" (hex mac  @=? hex (IUT.hmaclazy key lazymsg))
+        ]
+      where
+        lazymsg = BL.fromChunks . splitB 1 $ msg
+
+    hex = B16.encode
 
 -- define own 'foldl' here to avoid RULE rewriting to 'hashlazy'
 myfoldl' :: (b -> a -> b) -> b -> [a] -> b
@@ -128,6 +155,8 @@ refImplTests :: [TestTree]
 refImplTests =
     [ testProperty "hash" prop_hash
     , testProperty "hashlazy" prop_hashlazy
+    , testProperty "hmac" prop_hmac
+    , testProperty "hmaclazy" prop_hmaclazy
     ]
   where
     prop_hash (RandBS bs)
@@ -136,19 +165,43 @@ refImplTests =
     prop_hashlazy (RandLBS bs)
         = ref_hashlazy bs == IUT.hashlazy bs
 
+    prop_hmac (RandBS k) (RandBS bs)
+        = ref_hmac k bs == IUT.hmac k bs
+
+    prop_hmaclazy (RandBS k) (RandLBS bs)
+        = ref_hmaclazy k bs == IUT.hmaclazy k bs
+
     ref_hash :: ByteString -> ByteString
-    ref_hash = REF.md5DigestBytes . REF.md5 . fromStrict
+    ref_hash = ref_hashlazy . fromStrict
 
     ref_hashlazy :: BL.ByteString -> ByteString
     ref_hashlazy = REF.md5DigestBytes . REF.md5
 
+    -- stolen & adapted from SHA package
+    ref_hmac :: ByteString -> ByteString -> ByteString
+    ref_hmac k m = ref_hash (B.append opad (ref_hash (B.append ipad m)))
+     where
+      opad = B.map (xor 0x5c) k'
+      ipad = B.map (xor 0x36) k'
+
+      k' = B.append kt pad
+       where
+        kt  = if kn > bn then ref_hash k else k
+        pad = B.replicate (bn - ktn) 0
+        kn  = B.length k
+        ktn = B.length kt
+        bn  = 64
+
+    ref_hmaclazy :: ByteString -> BL.ByteString -> ByteString
+    ref_hmaclazy secret = ref_hmac secret . toStrict
+
     -- toStrict/fromStrict only available with bytestring-0.10 and later
+    toStrict = B.concat . BL.toChunks
     fromStrict = BL.fromChunks . (:[])
-
-
 
 main :: IO ()
 main = defaultMain $ testGroup "cryptohash-md5"
     [ testGroup "KATs" katTests
+    , testGroup "RFC2202" rfc2202Tests
     , testGroup "REF" refImplTests
     ]
