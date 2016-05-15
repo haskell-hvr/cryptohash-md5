@@ -202,11 +202,12 @@ md5_do_chunk(struct md5_ctx *ctx, const uint8_t buf[])
 void
 hs_cryptohash_md5_update(struct md5_ctx *ctx, const uint8_t *data, size_t len)
 {
-  size_t index   = ctx->sz & 0x3f;
+  size_t index = ctx->sz & 0x3f;
   const size_t to_fill = 64 - index;
 
   ctx->sz += len;
 
+  /* process partial buffer if there's enough data to make a block */
   if (index && len >= to_fill) {
     memcpy(ctx->buf + index, data, to_fill);
     md5_do_chunk(ctx, ctx->buf);
