@@ -1,3 +1,7 @@
+## 0.11.100.1
+
+ - Use `__builtin_bswap{32,64}` only with GCC >= 4.3
+
 ## 0.11.100.0
 
  - new `hmac` and `hmaclazy` functions providing HMAC-MD5
