@@ -40,6 +40,8 @@ module Crypto.Hash.MD5
     , update   -- :: Ctx -> ByteString -> Ctx
     , updates  -- :: Ctx -> [ByteString] -> Ctx
     , finalize -- :: Ctx -> ByteString
+    , start    -- :: ByteString -> Ctx
+    , startlazy-- :: L.ByteString -> Ctx
 
     -- * Single Pass API
     --
@@ -111,6 +113,7 @@ unsafeDoIO = unsafeDupablePerformIO
 --
 -- Consequently, a MD5 digest as produced by 'hash', 'hashlazy', or 'finalize' is 16 bytes long.
 newtype Ctx = Ctx ByteString
+  deriving (Eq)
 
 -- keep this synchronised with cbits/md5.h
 {-# INLINE digestSize #-}
@@ -217,12 +220,23 @@ hash :: ByteString -> ByteString
 hash d = unsafeDoIO $ withCtxNewThrow $ \ptr -> do
     c_md5_init ptr >> updateInternalIO ptr d >> finalizeInternalIO ptr
 
+{-# NOINLINE start #-}
+-- | hash a strict bytestring into a 'Ctx'
+start :: ByteString -> Ctx
+start d = unsafeDoIO $ withCtxNew $ \ptr -> do
+    c_md5_init ptr >> updateInternalIO ptr d
+
 {-# NOINLINE hashlazy #-}
 -- | hash a lazy bytestring into a digest bytestring (16 bytes)
 hashlazy :: L.ByteString -> ByteString
 hashlazy l = unsafeDoIO $ withCtxNewThrow $ \ptr -> do
     c_md5_init ptr >> mapM_ (updateInternalIO ptr) (L.toChunks l) >> finalizeInternalIO ptr
 
+{-# NOINLINE startlazy #-}
+-- | hash a lazy bytestring into a 'Ctx'
+startlazy :: L.ByteString -> Ctx
+startlazy l = unsafeDoIO $ withCtxNew $ \ptr -> do
+    c_md5_init ptr >> mapM_ (updateInternalIO ptr) (L.toChunks l)
 
 {-# NOINLINE hmac #-}
 -- | Compute 16-byte <https://tools.ietf.org/html/rfc2104 RFC2104>-compatible
