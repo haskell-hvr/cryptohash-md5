@@ -2,6 +2,7 @@
 
  - Add Eq instance for Ctx
  - add start and startlazy producing Ctx
+ - Remove ineffective RULES
 
 ## 0.11.100.1
 
