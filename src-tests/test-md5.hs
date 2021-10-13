@@ -8,6 +8,9 @@ import           Data.ByteString        (ByteString)
 import qualified Data.ByteString        as B
 import qualified Data.ByteString.Lazy   as BL
 import qualified Data.ByteString.Base16 as B16
+-- before bytestring-0.10 instance IsString ByteString
+-- was imported only from Char8 module
+import           Data.ByteString.Char8 ()
 
 -- reference implementation
 import qualified Data.Digest.Pure.MD5 as REF
