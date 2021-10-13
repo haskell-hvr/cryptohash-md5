@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
@@ -122,6 +123,10 @@ splitB l b
   where
     (b1, b2) = B.splitAt l b
 
+-- Minor hack to paper over backward incompat changes introduced in base16-bytestring-1.0
+class B16DecRes a where b16DecRes :: a -> ByteString
+instance B16DecRes (Either String ByteString) where b16DecRes = either error id
+instance B16DecRes (ByteString, ByteString)   where b16DecRes = fst
 
 rfc2202Vectors :: [(ByteString,ByteString,ByteString)]
 rfc2202Vectors = -- (secrect,msg,mac)
@@ -134,7 +139,7 @@ rfc2202Vectors = -- (secrect,msg,mac)
     , (rep 80 0xaa, "Test Using Larger Than Block-Size Key and Larger Than One Block-Size Data", x"6f630fad67cda0ee1fb1f562db3aa53e")
     ]
   where
-    x = fst.B16.decode
+    x = b16DecRes . B16.decode
     rep n c = B.replicate n c
 
 rfc2202Tests :: [TestTree]
