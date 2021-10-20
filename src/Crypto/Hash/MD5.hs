@@ -1,3 +1,4 @@
+{-# LANGUAGE Trustworthy #-}
 -- |
 -- Module      : Crypto.Hash.MD5
 -- License     : BSD-style
@@ -40,6 +41,7 @@ module Crypto.Hash.MD5
     , update   -- :: Ctx -> ByteString -> Ctx
     , updates  -- :: Ctx -> [ByteString] -> Ctx
     , finalize -- :: Ctx -> ByteString
+    , finalizeAndLength -- :: Ctx -> (ByteString,Word64)
     , start    -- :: ByteString -> Ctx
     , startlazy-- :: L.ByteString -> Ctx
 
@@ -51,6 +53,7 @@ module Crypto.Hash.MD5
     --
     --  - 'hash': create a digest ('init' + 'update' + 'finalize') from a strict 'ByteString'
     --  - 'hashlazy': create a digest ('init' + 'update' + 'finalize') from a lazy 'L.ByteString'
+    --  - 'hashlazyAndLength': create a digest ('init' + 'update' + 'finalizeAndLength') from a lazy 'L.ByteString'
     --
     -- Example:
     --
@@ -66,6 +69,7 @@ module Crypto.Hash.MD5
 
     , hash     -- :: ByteString -> ByteString
     , hashlazy -- :: L.ByteString -> ByteString
+    , hashlazyAndLength -- :: L.ByteString -> (ByteString,Word64)
 
     -- ** HMAC-MD5
     --
@@ -74,6 +78,7 @@ module Crypto.Hash.MD5
 
     , hmac     -- :: ByteString -> ByteString -> ByteString
     , hmaclazy -- :: ByteString -> L.ByteString -> ByteString
+    , hmaclazyAndLength -- :: ByteString -> L.ByteString -> (ByteString,Word64)
     ) where
 
 import Prelude hiding (init)
@@ -85,10 +90,13 @@ import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString as B
 import Data.ByteString (ByteString)
 import Data.ByteString.Unsafe (unsafeUseAsCStringLen)
-import Data.ByteString.Internal (create, toForeignPtr, memcpy)
+import Data.ByteString.Internal (create, toForeignPtr, memcpy, mallocByteString)
 import Data.Bits (xor)
 import Data.Word
 import System.IO.Unsafe (unsafeDupablePerformIO)
+
+import Compat (constructBS)
+import Crypto.Hash.MD5.FFI
 
 -- | perform IO for hashes that do allocation and ffi.
 -- unsafeDupablePerformIO is used when possible as the
@@ -97,23 +105,6 @@ import System.IO.Unsafe (unsafeDupablePerformIO)
 -- been returned to the user.
 unsafeDoIO :: IO a -> a
 unsafeDoIO = unsafeDupablePerformIO
-
--- | MD5 Context
---
--- The context data is exactly 88 bytes long, however
--- the data in the context is stored in host-endianness.
---
--- The context data is made up of
---
---  * a 'Word64' representing the number of bytes already feed to hash algorithm so far,
---
---  * a 64-element 'Word8' buffer holding partial input-chunks, and finally
---
---  * a 4-element 'Word32' array holding the current work-in-progress digest-value.
---
--- Consequently, a MD5 digest as produced by 'hash', 'hashlazy', or 'finalize' is 16 bytes long.
-newtype Ctx = Ctx ByteString
-  deriving (Eq)
 
 -- keep this synchronised with cbits/md5.h
 {-# INLINE digestSize #-}
@@ -129,6 +120,15 @@ withByteStringPtr :: ByteString -> (Ptr Word8 -> IO a) -> IO a
 withByteStringPtr b f =
     withForeignPtr fptr $ \ptr -> f (ptr `plusPtr` off)
     where (fptr, off, _) = toForeignPtr b
+
+{-# INLINE create' #-}
+-- | Variant of 'create' which allows to return an argument
+create' :: Int -> (Ptr Word8 -> IO a) -> IO (ByteString,a)
+create' l f = do
+    fp <- mallocByteString l
+    x <- withForeignPtr fp $ \p -> f p
+    let bs = constructBS fp l
+    return $! x `seq` bs `seq` (bs,x)
 
 copyCtx :: Ptr Ctx -> Ptr Ctx -> IO ()
 copyCtx dst src = memcpy (castPtr dst) (castPtr src) (fromIntegral sizeCtx)
@@ -154,14 +154,7 @@ withCtxNew f = Ctx `fmap` create sizeCtx (f . castPtr)
 withCtxNewThrow :: (Ptr Ctx -> IO a) -> IO a
 withCtxNewThrow f = allocaBytes sizeCtx (f . castPtr)
 
-foreign import ccall unsafe "md5.h hs_cryptohash_md5_init"
-    c_md5_init :: Ptr Ctx -> IO ()
 
-foreign import ccall unsafe "md5.h hs_cryptohash_md5_update"
-    c_md5_update_unsafe :: Ptr Ctx -> Ptr Word8 -> CSize -> IO ()
-
-foreign import ccall safe "md5.h hs_cryptohash_md5_update"
-    c_md5_update_safe :: Ptr Ctx -> Ptr Word8 -> CSize -> IO ()
 
 -- 'safe' call overhead neglible for 16KiB and more
 c_md5_update :: Ptr Ctx -> Ptr Word8 -> CSize -> IO ()
@@ -169,8 +162,11 @@ c_md5_update pctx pbuf sz
   | sz < 16384 = c_md5_update_unsafe pctx pbuf sz
   | otherwise  = c_md5_update_safe   pctx pbuf sz
 
-foreign import ccall unsafe "md5.h hs_cryptohash_md5_finalize"
-    c_md5_finalize :: Ptr Ctx -> Ptr Word8 -> IO ()
+-- 'safe' call overhead neglible for 4KiB and more
+c_md5_hash :: Ptr Word8 -> CSize -> Ptr Word8 -> IO ()
+c_md5_hash pbuf sz pout
+  | sz < 4096 = c_md5_hash_unsafe pbuf sz pout
+  | otherwise = c_md5_hash_safe   pbuf sz pout
 
 updateInternalIO :: Ptr Ctx -> ByteString -> IO ()
 updateInternalIO ptr d =
@@ -178,6 +174,9 @@ updateInternalIO ptr d =
 
 finalizeInternalIO :: Ptr Ctx -> IO ByteString
 finalizeInternalIO ptr = create digestSize (c_md5_finalize ptr)
+
+finalizeInternalIO' :: Ptr Ctx -> IO (ByteString,Word64)
+finalizeInternalIO' ptr = create' digestSize (c_md5_finalize_len ptr)
 
 {-# NOINLINE init #-}
 -- | create a new hash context
@@ -208,14 +207,25 @@ finalize ctx
   | validCtx ctx = unsafeDoIO $ withCtxThrow ctx finalizeInternalIO
   | otherwise    = error "MD5.finalize: invalid Ctx"
 
+{-# NOINLINE finalizeAndLength #-}
+-- | Variant of 'finalize' also returning length of hashed content
+--
+-- @since 0.11.101.0
+finalizeAndLength :: Ctx -> (ByteString,Word64)
+finalizeAndLength ctx
+  | validCtx ctx = unsafeDoIO $ withCtxThrow ctx finalizeInternalIO'
+  | otherwise    = error "SHA256.finalize: invalid Ctx"
+
 {-# NOINLINE hash #-}
 -- | hash a strict bytestring into a digest bytestring (16 bytes)
 hash :: ByteString -> ByteString
-hash d = unsafeDoIO $ withCtxNewThrow $ \ptr -> do
-    c_md5_init ptr >> updateInternalIO ptr d >> finalizeInternalIO ptr
+-- hash d = unsafeDoIO $ withCtxNewThrow $ \ptr -> do c_md5_init ptr >> updateInternalIO ptr d >> finalizeInternalIO ptr
+hash d = unsafeDoIO $ unsafeUseAsCStringLen d $ \(cs, len) -> create digestSize (c_md5_hash (castPtr cs) (fromIntegral len))
 
 {-# NOINLINE start #-}
 -- | hash a strict bytestring into a 'Ctx'
+--
+-- @since 0.11.101.0
 start :: ByteString -> Ctx
 start d = unsafeDoIO $ withCtxNew $ \ptr -> do
     c_md5_init ptr >> updateInternalIO ptr d
@@ -226,8 +236,18 @@ hashlazy :: L.ByteString -> ByteString
 hashlazy l = unsafeDoIO $ withCtxNewThrow $ \ptr -> do
     c_md5_init ptr >> mapM_ (updateInternalIO ptr) (L.toChunks l) >> finalizeInternalIO ptr
 
+{-# NOINLINE hashlazyAndLength #-}
+-- | Variant of 'hashlazy' which simultaneously computes the hash and length of a lazy bytestring.
+--
+-- @since 0.11.101.0
+hashlazyAndLength :: L.ByteString -> (ByteString,Word64)
+hashlazyAndLength l = unsafeDoIO $ withCtxNewThrow $ \ptr ->
+    c_md5_init ptr >> mapM_ (updateInternalIO ptr) (L.toChunks l) >> finalizeInternalIO' ptr
+
 {-# NOINLINE startlazy #-}
 -- | hash a lazy bytestring into a 'Ctx'
+--
+-- @since 0.11.101.0
 startlazy :: L.ByteString -> Ctx
 startlazy l = unsafeDoIO $ withCtxNew $ \ptr -> do
     c_md5_init ptr >> mapM_ (updateInternalIO ptr) (L.toChunks l)
@@ -262,6 +282,25 @@ hmaclazy secret msg = hash $ B.append opad (hashlazy $ L.append ipad msg)
   where
     opad = B.map (xor 0x5c) k'
     ipad = L.fromChunks [B.map (xor 0x36) k']
+
+    k'  = B.append kt pad
+    kt  = if B.length secret > 64 then hash secret else secret
+    pad = B.replicate (64 - B.length kt) 0
+
+-- | Variant of 'hmaclazy' which also returns length of message
+--
+-- @since 0.11.101.0
+hmaclazyAndLength :: ByteString   -- ^ secret
+                  -> L.ByteString -- ^ message
+                  -> (ByteString,Word64) -- ^ digest (32 bytes) and length of message
+hmaclazyAndLength secret msg =
+    (hash (B.append opad htmp), sz' - fromIntegral ipadLen)
+  where
+    (htmp, sz') = hashlazyAndLength (L.append ipad msg)
+
+    opad = B.map (xor 0x5c) k'
+    ipad = L.fromChunks [B.map (xor 0x36) k']
+    ipadLen = B.length k'
 
     k'  = B.append kt pad
     kt  = if B.length secret > 64 then hash secret else secret

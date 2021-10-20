@@ -53,9 +53,9 @@ library
 
   hs-source-dirs:    src
   exposed-modules:   Crypto.Hash.MD5
+  other-modules:     Crypto.Hash.MD5.FFI Compat
   ghc-options:       -Wall -fno-cse -O2
   cc-options:        -Wall
-  c-sources:         cbits/md5.c
   include-dirs:      cbits
 
 test-suite test-md5
