@@ -134,7 +134,7 @@ rfc2202Vectors = -- (secrect,msg,mac)
     , (rep 80 0xaa, "Test Using Larger Than Block-Size Key and Larger Than One Block-Size Data", x"6f630fad67cda0ee1fb1f562db3aa53e")
     ]
   where
-    x = fst.B16.decode
+    x = B16.decodeLenient
     rep n c = B.replicate n c
 
 rfc2202Tests :: [TestTree]
