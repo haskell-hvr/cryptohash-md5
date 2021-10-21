@@ -3,6 +3,7 @@
 module Main (main) where
 
 import           Data.Bits              (xor)
+import           Data.Word              (Word64)
 import           Data.ByteString        (ByteString)
 import qualified Data.ByteString        as B
 import qualified Data.ByteString.Lazy   as BL
@@ -181,8 +182,10 @@ refImplTests =
     , testProperty "start" prop_start
     , testProperty "hashlazy" prop_hashlazy
     , testProperty "startlazy" prop_startlazy
+    , testProperty "hashlazyAndLength" prop_hashlazyAndLength
     , testProperty "hmac" prop_hmac
     , testProperty "hmaclazy" prop_hmaclazy
+    , testProperty "hmaclazyAndLength" prop_hmaclazyAndLength
     ]
   where
     prop_hash (RandBS bs)
@@ -194,6 +197,9 @@ refImplTests =
     prop_hashlazy (RandLBS bs)
         = ref_hashlazy bs == IUT.hashlazy bs
 
+    prop_hashlazyAndLength (RandLBS bs)
+        = ref_hashlazyAndLength bs == IUT.hashlazyAndLength bs
+
     prop_startlazy (RandLBS bs)
         = ref_hashlazy bs == (IUT.finalize $ IUT.startlazy bs)
 
@@ -203,11 +209,17 @@ refImplTests =
     prop_hmaclazy (RandBS k) (RandLBS bs)
         = ref_hmaclazy k bs == IUT.hmaclazy k bs
 
+    prop_hmaclazyAndLength (RandBS k) (RandLBS bs)
+        = ref_hmaclazyAndLength k bs == IUT.hmaclazyAndLength k bs
+
     ref_hash :: ByteString -> ByteString
     ref_hash = ref_hashlazy . fromStrict
 
     ref_hashlazy :: BL.ByteString -> ByteString
     ref_hashlazy = REF.md5DigestBytes . REF.md5
+
+    ref_hashlazyAndLength :: BL.ByteString -> (ByteString,Word64)
+    ref_hashlazyAndLength x = (ref_hashlazy x, fromIntegral (BL.length x))
 
     -- stolen & adapted from SHA package
     ref_hmac :: ByteString -> ByteString -> ByteString
@@ -226,6 +238,9 @@ refImplTests =
 
     ref_hmaclazy :: ByteString -> BL.ByteString -> ByteString
     ref_hmaclazy secret = ref_hmac secret . toStrict
+
+    ref_hmaclazyAndLength :: ByteString -> BL.ByteString -> (ByteString,Word64)
+    ref_hmaclazyAndLength secret msg = (ref_hmaclazy secret msg, fromIntegral (BL.length msg))
 
     -- toStrict/fromStrict only available with bytestring-0.10 and later
     toStrict = B.concat . BL.toChunks
