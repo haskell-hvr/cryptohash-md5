@@ -1,3 +1,4 @@
+-- test
 branches: master
 ghcup-jobs: >=9.2
 benchmarks: >=7.6
