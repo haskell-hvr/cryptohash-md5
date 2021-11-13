@@ -292,7 +292,7 @@ hmaclazy secret msg = hash $ B.append opad (hashlazy $ L.append ipad msg)
 -- @since 0.11.101.0
 hmaclazyAndLength :: ByteString   -- ^ secret
                   -> L.ByteString -- ^ message
-                  -> (ByteString,Word64) -- ^ digest (32 bytes) and length of message
+                  -> (ByteString,Word64) -- ^ digest (16 bytes) and length of message
 hmaclazyAndLength secret msg =
     (hash (B.append opad htmp), sz' - fromIntegral ipadLen)
   where
