@@ -154,8 +154,6 @@ withCtxNew f = Ctx `fmap` create sizeCtx (f . castPtr)
 withCtxNewThrow :: (Ptr Ctx -> IO a) -> IO a
 withCtxNewThrow f = allocaBytes sizeCtx (f . castPtr)
 
-
-
 -- 'safe' call overhead neglible for 16KiB and more
 c_md5_update :: Ptr Ctx -> Ptr Word8 -> CSize -> IO ()
 c_md5_update pctx pbuf sz
