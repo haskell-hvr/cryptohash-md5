@@ -1,6 +1,7 @@
+cabal-version:       >=1.10
 name:                cryptohash-md5
 version:             0.11.101.0
-x-revision:          1
+x-revision:          2
 description:
     A practical incremental and one-pass, pure API to the
     <https://en.wikipedia.org/wiki/MD5 MD5 hash algorithm>
@@ -20,13 +21,12 @@ description:
 license:             BSD3
 license-file:        LICENSE
 copyright:           Vincent Hanquez, Herbert Valerio Riedel
-maintainer:          Herbert Valerio Riedel <hvr@gnu.org>
+maintainer:          https://github.com/haskell-hvr/cryptohash-md5
 homepage:            https://github.com/haskell-hvr/cryptohash-md5
 bug-reports:         https://github.com/haskell-hvr/cryptohash-md5/issues
 synopsis:            Fast, pure and practical MD5 implementation
 category:            Data, Cryptography
 build-type:          Simple
-cabal-version:       >=1.10
 
 tested-with:
   GHC == 9.6.1
@@ -49,7 +49,7 @@ extra-source-files:  cbits/md5.h
 
 source-repository head
   type:     git
-  location: https://github.com/hvr/cryptohash-md5.git
+  location: https://github.com/haskell-hvr/cryptohash-md5.git
 
 library
   default-language:  Haskell2010
