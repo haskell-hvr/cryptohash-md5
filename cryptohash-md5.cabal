@@ -41,7 +41,6 @@ tested-with:
   GHC == 8.6.5
   GHC == 8.4.4
   GHC == 8.2.2
-  GHC == 8.0.2
 
 extra-source-files:  cbits/md5.h
                      changelog.md
